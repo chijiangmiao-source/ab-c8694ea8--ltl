@@ -1,0 +1,35 @@
+name: ltl-interlock
+
+services:
+  app:
+    build: .
+    image: ltl-interlock-app
+    environment:
+      PORT: 8000
+    # Host port is adjustable:  APP_PORT=9090 docker compose up app
+    ports:
+      - "${APP_PORT:-8080}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import os,urllib.request;urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','8000')+'/healthz',timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  # Acceptance gate: build check + unit tests + HTTP smoke against app,
+  # centred on the never-alarm violating loop.  Exits when done; the
+  # container's exit code reports the verdict.
+  verify:
+    image: ltl-interlock-app
+    build: .
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      APP_URL: http://app:8000
+    command: >
+      sh -c "python -m compileall -q src tests smoke.py
+      && python -m unittest discover -s tests -t . -v
+      && python smoke.py"
